@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "drill_id": "swdr_REPLACE_WITH_DRILL_ID",
+  "environment": "staging",
+  "overwing_url": "https://overwing.ai",
+  "hosts": ["kv:8787"],
+  "surfaces": [
+    { "id": "scratch", "kind": "directory", "path": "/data/scratch" },
+    { "id": "kv", "kind": "http-kv", "url": "http://kv:8787" }
+  ],
+  "limits": { "max_agents": 8, "max_tokens": 0, "max_seconds": 120 },
+  "fleet": { "agents": 8, "mode": "scripted", "seed": 7 },
+  "not_after": "2027-01-01T00:00:00Z"
+}

@@ -1,0 +1,6 @@
+node_modules
+.DS_Store
+*.pem
+*.signed.json
+drill-report-*.md
+.overwing-drill.stop

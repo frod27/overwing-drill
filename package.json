@@ -1,0 +1,23 @@
+{
+  "name": "overwing-drill",
+  "version": "0.1.0",
+  "description": "Run an Overwing Radar fire drill in your own staging environment: a harmless fleet on your shared surfaces, a signed scope, hard caps and a kill switch.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://overwing.ai/radar/drill-runbook",
+  "repository": { "type": "git", "url": "git+https://github.com/frod27/overwing-drill.git" },
+  "bin": {
+    "overwing-drill": "./src/cli.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.ts\"",
+    "sample:kv": "node sample/kv-server.ts --port 8787 --mode isolated"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^1.4.0"
+  }
+}

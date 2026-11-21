@@ -1,0 +1,54 @@
+# The sample staging stack for a first drill: two shared surfaces with opposite properties.
+#
+#   scratch      a directory every agent can list and read in full (most scratch buckets are like this)
+#   kv           a key-value service that shows each agent only its own entries
+#
+# A drill against both shows coordination emerging on scratch and not on kv.
+#
+#   docker compose up -d kv
+#   docker compose run --rm drill check --scope /scope/scope.signed.json
+#   docker compose run --rm -e OVERWING_API_KEY drill run --scope /scope/scope.signed.json --out /scope/report.md
+#   docker compose down -v
+#
+# The runner writes its report into this directory. On Linux, run it as yourself so it may:
+#   export DRILL_USER="$(id -u):$(id -g)"
+#
+# The private key that signs the scope is not mounted: the runner never needs it.
+services:
+  kv:
+    build: ..
+    entrypoint: ["node", "/drill/sample/kv-server.ts", "--port", "8787", "--mode", "isolated"]
+    networks: [staging]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8787/healthz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  drill:
+    build: ..
+    depends_on:
+      kv:
+        condition: service_healthy
+    user: "${DRILL_USER:-1000:1000}"
+    environment:
+      # Never production: the runner refuses to start if this, or any of its siblings, says so.
+      NODE_ENV: staging
+    volumes:
+      - scratch:/data/scratch
+      - ./:/scope
+    working_dir: /scope
+    networks: [staging]
+    # Stops within a second of `docker compose stop drill`: the runner treats the signal as its kill switch.
+    stop_grace_period: 10s
+
+volumes:
+  # In memory, and writable by whichever user the runner is: a scratch space is exactly that.
+  scratch:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "mode=1777"
+
+networks:
+  staging:
