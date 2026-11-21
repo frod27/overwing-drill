@@ -1,6 +1,6 @@
 {
   "name": "overwing-drill",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Run an Overwing Radar fire drill in your own staging environment: a harmless fleet on your shared surfaces, a signed scope, hard caps and a kill switch.",
   "private": true,
   "type": "module",

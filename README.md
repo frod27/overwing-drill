@@ -34,6 +34,11 @@ To build the image from this source instead: `docker build -t overwing-drill htt
 In the container the runner sees only what you mount: a directory surface must be mounted too, at
 the path the scope names.
 
+The image is built from a base image named by its digest, and installs its one dependency exactly
+as `package-lock.json` records it, with `npm ci --ignore-scripts`: no package's install script runs.
+To run the same image every time yourself, note the digest `docker pull` prints and use it in place
+of the name: `ghcr.io/frod27/overwing-drill@sha256:...`.
+
 ## Run a drill
 
 ```
@@ -50,13 +55,39 @@ directory every agent can read in full, and a key-value service that shows each 
 entries (`sample/docker-compose.yml`). A drill against both shows coordination emerging on the first
 and not on the second.
 
+### Where the key goes
+
+The runner sends `OVERWING_API_KEY`, and everything else it sends, to one address: the one given
+with `--overwing-url`, else the `OVERWING_URL` environment variable, else `https://overwing.ai`. It
+never takes that address from the scope file. The scope's `overwing_url` is only compared with it:
+if the scope names another address, `check` and `run` refuse, name both addresses, and send nothing.
+The key that a scope's signature is checked against comes from the same address, so a scope file
+that somebody edited cannot point the runner at a server that vouches for it.
+
+Most drills need neither the flag nor the variable. If your Overwing is at another address:
+
+```
+overwing-drill check --scope scope.signed.json --overwing-url https://overwing.example
+OVERWING_API_KEY=... overwing-drill run --scope scope.signed.json --overwing-url https://overwing.example
+```
+
+The address must be `https`. Plain `http` is accepted only for `localhost`, `127.0.0.1` and `[::1]`.
+The container alias above does not pass `OVERWING_URL` through: give the flag, or add
+`-e OVERWING_URL` to the alias.
+
 ## What stops a drill
 
 - No scope, an unsigned one, one changed after signing, one signed with another key, or an expired
   one: the drill does not start.
+- A scope that names another Overwing address than the runner's own, or an address for Overwing
+  that is not `https`: the drill does not start, and nothing is sent.
 - Anything that looks like production (the environment's name, a host's name, a public host the
   scope does not acknowledge, or `NODE_ENV=production` and its relatives in the runner's own
   process): the drill does not start.
+- A host that is neither a name nor an address written out in full. `2130706433`, `0x7f000001`,
+  `0177.0.0.1` and `127.1` are numbers that stand for an address they do not show: each is refused as
+  not a host name, in `hosts` and in a surface's address. Write `127.0.0.1`. A name with no dot, like
+  `kv`, starts with a letter.
 - A surface that does not answer when the runner opens it: the drill does not start.
 - The kill switch: Ctrl-C or a container stop, the stop file, or stopping the drill on Overwing.
   The fleet is reported stopped within five seconds. If Overwing cannot be reached for ten seconds,
@@ -65,7 +96,20 @@ and not on the second.
   (100 agents, 5,000,000 tokens, one hour).
 - No call waits forever: a surface has ten seconds to answer and Overwing has twenty.
 
-`npm test` covers the scope refusals, the limits and the kill switch.
+`npm test` covers the scope refusals, the address the key is sent to, links in a directory surface,
+the limits and the kill switch.
+
+## A directory surface stays in its directory
+
+A key is a path under the surface's directory. One with a `..` part, or one that starts with `/`,
+is refused. A symbolic link does not lead out either. The directory's real path is found once for
+the whole drill, when the runner first opens the surface, and after that:
+
+- a listing skips every link, so the fleet is never shown one or what is behind it;
+- an entry is read through a link only if it ends inside the directory;
+- nothing is written or deleted through a link, wherever it points.
+
+If your scratch directory relies on links, the fleet does not see what is behind them.
 
 ## What leaves your environment
 
@@ -75,7 +119,8 @@ here and is not sent: only a count, and for each incident whether an alert match
 
 ## A model-driven fleet
 
-Run `npm install` first: a model-driven fleet uses `@anthropic-ai/sdk`. Set `fleet.mode` to
+Run `npm ci --ignore-scripts` first: a model-driven fleet uses `@anthropic-ai/sdk`, and that installs
+the version `package-lock.json` records without running any package's install script. Set `fleet.mode` to
 `"model"`, give `limits.max_tokens`, and name the model API's host in `model_host`
 (`api.anthropic.com`). The agents run on `claude-opus-5-5` at low effort unless `fleet.model` names
 another model. Each agent gets a ticket of its own that leans on something it was not handed, as

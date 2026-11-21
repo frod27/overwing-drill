@@ -106,6 +106,63 @@ describe("a drill's scope", () => {
     }
   });
 
+  it("refuses a host written as a number: it is not a host name, and it is never taken for a private one", () => {
+    const directory: Scope["surfaces"] = [{ id: "scratch", kind: "directory", path: "./d" }];
+    const hosts = (list: string[], more: Partial<Scope> = {}): Scope => scope({ hosts: list, surfaces: directory, ...more });
+
+    // 2130706433, 0x7f000001, 0177.0.0.1 and 127.1 all reach 127.0.0.1, and 134744072 reaches a public
+    // address. None of them shows where it leads, and a name with no dot used to count as private.
+    const numbers = ["2130706433", "134744072", "0", "0x7f000001", "0X7F000001", "0x", "0177", "017700000001", "127.1", "127.0.1", "0177.0.0.1", "010.0.0.1", "127.0.0.01", "0x7f.0.0.1", "127.0.0.0x1", "256.0.0.1", "1.2.3.4.5", "127.0.0.1.", "kv.123", "2130706433:8080", "127.1:8080"];
+    for (const host of numbers) {
+      assert.match(invalid(hosts([host])), /^Scope: hosts: \S+ is not a host name\./, host);
+      // The check that production is judged by says the same on its own, for a caller that skipped the shape check.
+      const signs = productionSigns(hosts([host]));
+      assert.ok(signs.length === 1 && /is not a host name/.test(signs[0]!), `${host}: ${signs.join("; ")}`);
+    }
+    // Brackets are for an IPv6 address and nothing else.
+    for (const host of ["[fd]", "[fe80]", "[1]", "[:]", "[fd]:8080"]) {
+      assert.match(invalid(hosts([host])), /is not a host name/, host);
+      assert.match(productionSigns(hosts([host]))[0] ?? "", /is not a host name/, host);
+    }
+
+    // A name with no dot is a name: it starts with a letter, ends with a letter or digit, and is 63 characters at most.
+    for (const host of ["kv", "KV", "k", "redis-1", "localhost", "a".repeat(63), "kv:8787"]) {
+      assert.equal(validateScope(hosts([host])).ok, true, host);
+      assert.deepEqual(productionSigns(hosts([host])), [], host);
+    }
+    for (const host of ["1kv", "0kv", "-kv", "kv-", "a".repeat(64)]) {
+      assert.match(invalid(hosts([host])), /is not a host name/, host);
+      assert.match(productionSigns(hosts([host]))[0] ?? "", /is not a host name/, host);
+    }
+
+    // An address written out in full is still read for what it is, and a dotted name is still a name.
+    for (const host of ["127.0.0.1", "10.0.0.5:6379", "172.16.0.1", "192.168.1.1", "169.254.1.1", "[::1]:8080", "[fd00::1]", "[FD12:3456::1]", "[fe80::1]", "[0:0:0:0:0:0:0:1]", "kv.staging.internal", "cache-0x1f.internal", "10.staging.example.com"]) {
+      assert.equal(validateScope(hosts([host])).ok, true, host);
+      assert.deepEqual(productionSigns(hosts([host])), [], host);
+    }
+    for (const host of ["8.8.8.8", "172.32.0.1", "0.0.0.0", "255.255.255.255", "[2001:db8::1]", "[::ffff:7f00:1]", "[fd::1]", "[fe8::1]:80"]) {
+      assert.equal(validateScope(hosts([host])).ok, true, host);
+      assert.match(productionSigns(hosts([host]))[0] ?? "", /is a public address/, host);
+    }
+
+    // The same in a surface's address, where an address parser has already turned the number into what it stands for.
+    const at = (url: string, list: string[] = ["127.0.0.1:8787", "127.0.0.1", "8.0.0.1", "8.8.8.8"]): Scope => scope({ hosts: list, surfaces: [{ id: "kv", kind: "http-kv", url }] });
+    for (const [url, standsFor] of [["http://2130706433:8787", "127.0.0.1"], ["http://0x7f000001", "127.0.0.1"], ["http://0177.0.0.1:8787/kv", "127.0.0.1"], ["http://127.1", "127.0.0.1"], ["http://127.0.0.1.:8787", "127.0.0.1"], ["http://010.0.0.1", "8.0.0.1"], ["http://134744072", "8.8.8.8"], ["http://10.0.0.5@134744072", "8.8.8.8"]] as const) {
+      assert.ok(invalid(at(url)).startsWith(`Scope: surfaces[0].url: its host is a number that stands for ${standsFor}, not a host name.`), `${url}: ${invalid(at(url))}`);
+    }
+    for (const url of ["http://kv:99999", "http://[fd]/", "http://kv .internal", "http://256.0.0.1"]) assert.match(invalid(at(url)), /surfaces\[0\]\.url: it is not an address that can be read/, url);
+    assert.match(invalid(at("http://my_kv:8787")), /surfaces\[0\]\.url: its host is not a host name/);
+    for (const url of ["http://127.0.0.1:8787", "http://127.0.0.1:8787/kv", "http://[::1]:8787", "http://kv:8787", "http://KV.Staging.Internal:8080"]) {
+      assert.equal(validateScope(at(url, ["127.0.0.1:8787", "[::1]:8787", "kv:8787", "kv.staging.internal:8080"])).ok, true, url);
+    }
+
+    // And wherever else a scope names a host.
+    assert.match(invalid(scope({ model_host: "2130706433" })), /model_host: 2130706433 is not a host name/);
+    assert.match(invalid(hosts(["8.8.8.8"], { public_hosts_acknowledged: ["134744072"] })), /public_hosts_acknowledged: 134744072 is not a host name/);
+    // A public address is still allowed only when it is acknowledged as what it is.
+    assert.deepEqual(productionSigns(hosts(["8.8.8.8"], { public_hosts_acknowledged: ["8.8.8.8"] })), []);
+  });
+
   it("refuses when the process itself says it is in production", () => {
     for (const name of ["NODE_ENV", "ENV", "ENVIRONMENT", "APP_ENV", "RAILS_ENV", "DEPLOY_ENV", "STAGE", "VERCEL_ENV"]) assert.equal(productionSigns(scope(), { [name]: "production" }).length, 1, name);
     assert.equal(productionSigns(scope(), { NODE_ENV: "Prod" }).length, 1);

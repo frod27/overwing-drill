@@ -3,7 +3,7 @@
  * decoys. Also the helper that plants a decoy on a surface. No dependencies: fetch.
  */
 import { contentHash, type DrillEvent, type Surface } from "./surfaces.ts";
-import type { SignedScope } from "./scope.ts";
+import type { Result, SignedScope } from "./scope.ts";
 
 export type DrillStatus = { id: string; status: string; should_run: boolean; public_key: string; report_url?: string };
 export type ApiError = Error & { status?: number };
@@ -13,8 +13,60 @@ export type Overwing = ReturnType<typeof overwing>;
 /** No request to Overwing waits longer than this. */
 export const API_TIMEOUT_MS = 20_000;
 
+/** Where the runner sends when it is told nothing else. */
+export const DEFAULT_OVERWING_URL = "https://overwing.ai";
+/** The only hosts plain http is accepted for: this machine, where a stand-in for Overwing runs in the tests. */
+const THIS_MACHINE = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** Overwing's address as the runner uses it: `base` is what requests are built on, `origin` is what a scope's address is compared with. */
+export type OverwingAddress = { base: string; origin: string; from: string };
+
+/**
+ * Reads an address for Overwing. The runner's key is sent to it, and the key a scope is verified with
+ * comes from it, so only https is accepted, or http to this machine itself.
+ */
+export function readOverwingAddress(address: string, from: string): Result<OverwingAddress> {
+  // What was given is never repeated whole: it may hold a user name or a token that does not belong in a log.
+  const usual = `The usual one is ${DEFAULT_OVERWING_URL}.`;
+  let u: URL;
+  try {
+    u = new URL(address);
+  } catch {
+    return { ok: false, error: `Overwing's address (${from}) is not an address: it starts with https:// and names a host. ${usual}` };
+  }
+  if (u.protocol !== "https:" && !(u.protocol === "http:" && THIS_MACHINE.has(u.hostname))) return { ok: false, error: `Overwing's address must start with https://, because the runner's key is sent to it. Plain http is accepted only for localhost, 127.0.0.1 and [::1]. This one (${from}) starts with ${u.protocol}//${u.host}. ${usual}` };
+  if (u.username || u.password || u.search || u.hash) return { ok: false, error: `Overwing's address (${from}) must be an address alone, with no user name, password, query or fragment. ${usual}` };
+  return { ok: true, value: { base: `${u.origin}${u.pathname.replace(/\/+$/, "")}`, origin: u.origin, from } };
+}
+
+/**
+ * Overwing's address for this run: the command line's (--overwing-url), else the environment's
+ * (OVERWING_URL), else https://overwing.ai. Never the scope file's. The scope is the one thing here
+ * that someone else wrote, and whoever can change it would otherwise choose where the key goes.
+ */
+export function chooseOverwing(flag: string | undefined, env: Record<string, string | undefined>): Result<OverwingAddress> {
+  if (flag !== undefined) return readOverwingAddress(flag, "from --overwing-url");
+  if (env.OVERWING_URL) return readOverwingAddress(env.OVERWING_URL, "from OVERWING_URL");
+  return readOverwingAddress(DEFAULT_OVERWING_URL, "the default");
+}
+
+/** Why a scope may not be run against this address: it was written for another. Null when it names the same origin. */
+export function scopeNamesAnother(scopeUrl: string, chosen: OverwingAddress): string | null {
+  let named: string;
+  try {
+    named = new URL(scopeUrl).origin;
+  } catch {
+    named = "an address that cannot be read";
+  }
+  if (named === chosen.origin) return null;
+  return `The scope names Overwing at ${named}, and this runner sends to ${chosen.origin} (${chosen.from}). Nothing was sent. The runner's key goes only to the address the runner itself is given, never to one a scope file names. If the scope's address really is your Overwing, give it to the runner yourself: --overwing-url <address>, or OVERWING_URL. If you do not recognise it, do not run this scope.`;
+}
+
 export function overwing(opts: { baseUrl: string; key: string; fetch?: typeof fetch; timeoutMs?: number }) {
-  const base = opts.baseUrl.replace(/\/+$/, "");
+  // The key goes nowhere but over https, or to this machine: whatever built the address, it is read again here.
+  const address = readOverwingAddress(opts.baseUrl, "given to the client");
+  if (!address.ok) throw new Error(address.error);
+  const base = address.value.base;
   const doFetch = opts.fetch ?? fetch;
   const limit = opts.timeoutMs ?? API_TIMEOUT_MS;
   async function call<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
