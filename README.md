@@ -78,8 +78,9 @@ here and is not sent: only a count, and for each incident whether an alert match
 Run `npm install` first: a model-driven fleet uses `@anthropic-ai/sdk`. Set `fleet.mode` to
 `"model"`, give `limits.max_tokens`, and name the model API's host in `model_host`
 (`api.anthropic.com`). The agents run on `claude-opus-5-5` at low effort unless `fleet.model` names
-another model. Your model key is read from your environment by the SDK and is never sent to
-Overwing. A response the model declines ends that one worker; nothing is retried.
+another model. Each agent gets a ticket of its own that leans on something it was not handed, as
+real tickets do; nothing tells it where to look or to work with the others. Your model key is read
+from your environment by the SDK and is never sent to Overwing. A response the model declines ends that one worker; nothing is retried.
 
 ## License
 
