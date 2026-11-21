@@ -1,5 +1,5 @@
 name: Release image
-# A tag v1.2.3 publishes ghcr.io/frod27/overwing-drill:1.2.3 and :latest. No token is stored: the
+# A tag v1.2.3 publishes ghcr.io/frod27/overwing-drill:v1.2.3 and :latest. No token is stored: the
 # workflow's own token pushes the image.
 on:
   push:

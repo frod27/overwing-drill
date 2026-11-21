@@ -23,13 +23,14 @@ cd overwing-drill
 alias overwing-drill="node $PWD/src/cli.ts"
 ```
 
-Or as a container, built from this repository:
+Or as a container:
 
 ```
-docker build -t overwing-drill https://github.com/frod27/overwing-drill.git
-alias overwing-drill='docker run --rm -it --user "$(id -u):$(id -g)" -v "$PWD":/work -w /work -e OVERWING_API_KEY overwing-drill'
+docker pull ghcr.io/frod27/overwing-drill
+alias overwing-drill='docker run --rm -it --user "$(id -u):$(id -g)" -v "$PWD":/work -w /work -e OVERWING_API_KEY ghcr.io/frod27/overwing-drill'
 ```
 
+To build the image from this source instead: `docker build -t overwing-drill https://github.com/frod27/overwing-drill.git`.
 In the container the runner sees only what you mount: a directory surface must be mounted too, at
 the path the scope names.
 
