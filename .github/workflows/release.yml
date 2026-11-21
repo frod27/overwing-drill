@@ -1,31 +1,52 @@
 name: Release image
 # A tag v1.2.3 publishes ghcr.io/frod27/overwing-drill:v1.2.3 and :latest. No token is stored: the
 # workflow's own token pushes the image.
+#
+# Every action is pinned to a commit, with its version in the comment beside it, so a tag moved
+# upstream cannot change what runs here. Dependabot proposes new pins (.github/dependabot.yml).
+# Nothing here pushes to the repository, so checkout does not leave its token on disk.
 on:
   push:
     tags: ["v*"]
 permissions:
   contents: read
-  packages: write
 jobs:
-  image:
+  # The tag check and the tests run in a job that cannot publish. Only the image job below may write
+  # packages, and it runs nothing but what it takes to build, push and sign the image.
+  test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: The tag matches package.json
         run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
       - run: npm test
-      - uses: docker/login-action@v3
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write       # push the image to ghcr.io
+      id-token: write       # sign the provenance as this workflow run, no key stored anywhere
+      attestations: write   # record the provenance against this repository
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        id: build
         with:
           context: .
           push: true
@@ -37,3 +58,10 @@ jobs:
             org.opencontainers.image.source=https://github.com/frod27/overwing-drill
             org.opencontainers.image.description=Runs an Overwing Radar fire drill in your own staging environment
             org.opencontainers.image.licenses=MIT
+      # Signed build provenance for the digest both tags point at: which repository, workflow and
+      # commit built it. Check an image before running it with:
+      #   gh attestation verify oci://ghcr.io/frod27/overwing-drill:v1.2.3 --repo frod27/overwing-drill
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/frod27/overwing-drill
+          subject-digest: ${{ steps.build.outputs.digest }}
